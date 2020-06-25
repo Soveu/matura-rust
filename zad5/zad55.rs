@@ -13,25 +13,6 @@ fn read_all_file(filename: &str) -> String {
     return unsafe { String::from_utf8_unchecked(buffer) };
 }
 
-const Europe: u16          = 1 << 0;
-const Asia: u16            = 1 << 1;
-const Africa: u16          = 1 << 2;
-const NorthAmerica: u16    = 1 << 3;
-const SouthAmerica: u16    = 1 << 4;
-const Australia: u16       = 1 << 5;
-
-fn continent_from_str(s: &str) -> Option<u16> {
-    match s {
-        "Europa"             => Some(Europe),
-        "Azja"               => Some(Asia),
-        "Afryka"             => Some(Africa),
-        "Ameryka Polnocna"   => Some(NorthAmerica),
-        "Ameryka Poludniowa" => Some(SouthAmerica),
-        "Australia"          => Some(Australia),
-        _ => None,
-    }
-}
-
 /* parse for example "16,4" into 16_400_000 */
 fn parse_millions(s: &str) -> Option<u64> {
     let n = s.find(',')?;
@@ -42,6 +23,7 @@ fn parse_millions(s: &str) -> Option<u64> {
         Ok(x) => x,
         Err(_) => return None,
     };
+
     debug_assert!(rest.len() == 1);
     let rest: u64 = match rest.parse() {
         Ok(x) => x,
@@ -51,56 +33,66 @@ fn parse_millions(s: &str) -> Option<u64> {
     return Some(millions * 1000000 + rest * 100000);
 }
 
+struct Language<'a> {
+    name:   &'a str,
+    users:  u64,
+    official: bool,
+}
+
+struct Country<'a> {
+    population: u64,
+    languages: Vec<Language<'a>>,
+}
+
 fn main() {
     let countryfile = read_all_file("../dane/panstwa.txt");
-    let mut country_to_continent: HashMap<&str, u16> = HashMap::new();
+    let mut countries: HashMap<&str, Country> = HashMap::new();
 
     for line in countryfile.lines().skip(1) {
         let mut fields = line.splitn(3, '\t');
         let country = fields.by_ref().next().expect("Invalid file format");
-        let continent = fields.by_ref().next().expect("Invalid file format");
-        let continent = continent_from_str(continent).expect("Does this continent exist?");
+        let population = fields.by_ref().nth(1).expect("Invalid file format");
 
-        country_to_continent.insert(country, continent);
-    }
+        let population = parse_millions(population).expect("Invalid number format");
+        let info = Country {
+            population: population,
+            languages:  Vec::new(),
+        };
 
-    let langfile = read_all_file("../dane/jezyki.txt");
-    let mut lang_to_family: HashMap<&str, &str> = HashMap::new();
-
-    for line in langfile.lines().skip(1) {
-        let mut fields = line.splitn(2, '\t');
-        let lang   = fields.by_ref().next().expect("Invalid file format");
-        let family = fields.by_ref().next().expect("Invalid file format");
-        lang_to_family.insert(lang, family);
+        countries.insert(country, info);
     }
 
     let usersfile = read_all_file("../dane/uzytkownicy.txt");
-    let mut langusers: HashMap<&str, u64> = HashMap::new();
  
     for line in usersfile.lines().skip(1) {
         let mut fields = line.splitn(4, '\t');
         let country  = fields.by_ref().next().expect("Invalid file format");
         let language = fields.by_ref().next().expect("Invalid file format");
         let users    = fields.by_ref().next().expect("Invalid file format");
-        
-        let continent = country_to_continent[country];
-        if continent != NorthAmerica && continent != SouthAmerica {
-            continue;
-        }
-        if lang_to_family[language] == "indoeuropejska" {
-            continue;
-        }
+        let official = fields.by_ref().next().expect("Invalid file format");
 
-        let entry = langusers.entry(language).or_insert(0);
-        *entry += parse_millions(users).expect("invalid number format");
+        let users = parse_millions(users).expect("Invalid number format");
+
+        let langinfo = Language {
+            name:       language,
+            users:      users,
+            official:   official == "tak",
+        };
+
+        let entry = countries.get_mut(country).unwrap();
+        entry.languages.push(langinfo);
     }
 
-    let mut vec: Vec<(&str, u64)> = langusers.into_iter().collect();
-    vec.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+    let iter = countries.into_iter()
+        .flat_map(|(k, v)| {
+            v.languages.iter()
+                .filter(|lang| !lang.official)
+                .find(|lang| lang.users * 10 >= v.population * 3)
+                .map(|lang| (k, lang.name, lang.users * 100 / v.population))
+        });
 
-    for (lang, users) in vec.into_iter().take(6) {
-        let family = lang_to_family[lang];
-        println!("{} {} {}", lang, family, users);
+    for (country, langname, percent) in iter {
+        println!("{} {} {}%", country, langname, percent);
     }
 }
 
