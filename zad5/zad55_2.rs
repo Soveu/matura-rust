@@ -44,6 +44,15 @@ struct Country<'a> {
     languages: Vec<Language<'a>>,
 }
 
+impl<'a> Country<'a> {
+    fn with_population(p: u64) -> Self {
+        Self {
+            population: p,
+            languages:  Vec::new(),
+        }
+    }
+}
+
 fn main() {
     let countryfile = read_all_file("../dane/panstwa.txt");
     let mut countries: HashMap<&str, Country> = HashMap::new();
@@ -54,12 +63,8 @@ fn main() {
         let population = fields.by_ref().nth(1).expect("Invalid file format");
 
         let population = parse_millions(population).expect("Invalid number format");
-        let info = Country {
-            population: population,
-            languages:  Vec::new(),
-        };
 
-        countries.insert(country, info);
+        countries.insert(country, Country::with_population(population));
     }
 
     let usersfile = read_all_file("../dane/uzytkownicy.txt");
@@ -84,10 +89,10 @@ fn main() {
     }
 
     let iter = countries.into_iter().flat_map(|(k, v)| {
-        v.languages.iter()
-            .filter(|lang| !lang.official)
-            .find(|lang| lang.users * 10 >= v.population * 3)
-            .map(|lang| (k, lang.name, lang.users * 100 / v.population))
+        let pop = v.population;
+        v.languages.into_iter()
+            .filter(move |lang| !lang.official && lang.users * 10 >= pop * 3)
+            .map(move |lang| (k, lang.name, lang.users * 100 / pop))
     });
 
     for (country, langname, percent) in iter {
